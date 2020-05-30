@@ -12,9 +12,17 @@ async fn main() -> Result<()> {
     let api_key = vars.get("API_KEY")
         .context("API_KEY missing in .env")?;
 
+    if let Err(err) = run(api_key).await {
+        let err = format!("{:?}", err).replace(api_key, "<REDACTED>");
+        println!("{}", err);
+    }
+
+    Ok(())
+}
+
+async fn run(api_key: &str) -> Result<()> {
     let datamine = get_cached_or_download_datamine(DATAMINE_PATH, api_key)
         .await
-        .map_err(|e| anyhow!(e.to_string().replace(api_key, "<REDACTED>")))
         .context("failed to get datamine")?;
 
     println!();
