@@ -6,3 +6,8 @@
 **/*.rs.bk
 
 .env
+
+
+#Added by cargo
+
+/target
