@@ -1,5 +1,6 @@
 use anyhow::*;
 use serde::Deserialize;
+use serde_json as json;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
@@ -21,14 +22,43 @@ pub struct Sheet {
 }
 
 impl Sheet {
+    fn grid_data(&self) -> Result<&GridData> {
+        let grid_data = self.data.first().context("No grid data")?;
+        Ok(grid_data)
+    }
+
     pub fn column_titles(&self) -> Result<Vec<String>> {
-        let titles = self.data.first().context("No grid data")?
+        self.grid_data()?
             .row_data.first().context("No column titles")?
             .values.iter()
-            .map(|cell| cell.to_string())
+            .map(|cell| cell.to_string().context("Empty column title"))
+            .collect()
+    }
+
+    pub fn json_rows(&self) -> Result<Vec<json::Map<String, json::Value>>> {
+        let columns = self.column_titles()?;
+        let rows = self.grid_data()?
+            .row_data.iter().skip(1)
+            .map(|row| {
+                let mut map = json::Map::new();
+
+                for (i, cell) in row.values.iter().enumerate() {
+                    let key = columns.get(i).cloned().unwrap_or_default();
+                    let value = cell.to_string()
+                        .map(json::Value::String)
+                        .unwrap_or(json::Value::Null);
+
+                    println!("Key: {}", key);
+                    println!("Value: {}", value);
+
+                    map.insert(key, value.into());
+                }
+
+                map
+            })
             .collect();
 
-        Ok(titles)
+        Ok(rows)
     }
 }
 
@@ -57,16 +87,23 @@ pub struct CellData {
     pub effective_value: Option<ExtendedValue>,
 }
 
-impl ToString for CellData {
-    fn to_string(&self) -> String {
+impl CellData {
+    fn to_string(&self) -> Option<String> {
         if let Some(effective_value) = &self.effective_value {
-            return match effective_value {
+            return Some(match effective_value {
                 ExtendedValue::String { value } => value.clone(),
-                _ => unimplemented!("other extendend value types"),
+                ExtendedValue::Number { value } => value.to_string(),
+                _ => unimplemented!("other effective value type: {:?}", effective_value),
+            })
+        }
+
+        if let Some(user_entered_value) = &self.user_entered_value {
+            return match user_entered_value {
+                _ => unimplemented!("other user entered value type: {:?}", user_entered_value),
             }
         }
 
-        unimplemented!("effective_value is empty")
+        None
     }
 }
 

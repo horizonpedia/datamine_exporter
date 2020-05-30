@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{fs, collections::BTreeMap};
 use anyhow::*;
 use datamine_exporter::get_cached_or_download_datamine;
 
@@ -25,31 +25,17 @@ async fn run(api_key: &str) -> Result<()> {
         .await
         .context("failed to get datamine")?;
 
-    println!();
-    println!("##############");
-    println!("### Sheets ###");
-    println!("##############");
-    println!();
-
-    for sheet in &datamine.sheets {
-        println!("{}", sheet.properties.title);
-    }
-
     let recipes = datamine.find_sheet_by_title("Recipes")
         .context("Failed to find recipes sheet")?;
 
-    println!();
-    println!("######################");
-    println!("### Recipe columns ###");
-    println!("######################");
-    println!();
+    let recipes = recipes.json_rows()
+        .context("Failed to get recipes json rows")?;
 
-    let titles = recipes.column_titles()
-        .context("Failed to get recipe column titles")?;
+    let recipes_json = serde_json::to_vec_pretty(&recipes)
+        .context("Failed to serialize recipes")?;
 
-    for title in titles {
-        println!("{}", title);
-    }
+    fs::write("/tmp/recipes.json", &recipes_json)
+        .context("Failed to write recipes.json")?;
 
     Ok(())
 }
