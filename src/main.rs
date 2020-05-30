@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use anyhow::*;
-use datamine_exporter::{ExtendedValue, get_cached_or_download_datamine};
+use datamine_exporter::get_cached_or_download_datamine;
 
 const DATAMINE_PATH: &str = "datamine.json";
 
@@ -35,25 +35,20 @@ async fn run(api_key: &str) -> Result<()> {
         println!("{}", sheet.properties.title);
     }
 
-    for sheet in &datamine.sheets {
-        if sheet.properties.title != "Recipes" {
-            continue;
-        }
+    let recipes = datamine.find_sheet_by_title("Recipes")
+        .context("Failed to find recipes sheet")?;
 
-        println!();
-        println!("######################");
-        println!("### Recipe columns ###");
-        println!("######################");
-        println!();
+    println!();
+    println!("######################");
+    println!("### Recipe columns ###");
+    println!("######################");
+    println!();
 
-        let grid = sheet.data.first().unwrap();
-        let row1 = grid.row_data.first().unwrap();
+    let titles = recipes.column_titles()
+        .context("Failed to get recipe column titles")?;
 
-        for cell in &row1.values {
-            if let ExtendedValue::String { value } = cell.effective_value.as_ref().unwrap() {
-                println!("{}", value);
-            }
-        }
+    for title in titles {
+        println!("{}", title);
     }
 
     Ok(())
