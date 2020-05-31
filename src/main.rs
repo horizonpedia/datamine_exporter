@@ -34,7 +34,10 @@ async fn run(api_key: &str) -> Result<()> {
     let recipes_json = serde_json::to_vec_pretty(&recipes)
         .context("Failed to serialize recipes")?;
 
-    fs::write("/tmp/recipes.json", &recipes_json)
+    fs::create_dir_all("export")
+        .context("Failed to create export directory")?;
+
+    fs::write("export/recipes.json", &recipes_json)
         .context("Failed to write recipes.json")?;
 
     Ok(())
