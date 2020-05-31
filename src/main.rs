@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 async fn run(api_key: &str) -> Result<()> {
     let datamine = get_cached_or_download_datamine(DATAMINE_PATH, api_key)
         .await
-        .context("failed to get datamine")?;
+        .context("Failed to get datamine")?;
 
     let recipes = datamine.find_sheet_by_title("Recipes")
         .context("Failed to find recipes sheet")?;

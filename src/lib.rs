@@ -14,23 +14,23 @@ pub async fn get_cached_or_download_datamine(path: impl AsRef<Path>, api_key: &s
     let path = path.as_ref();
 
     let data = if path.exists() {
-        fs::read(path).context("failed reading cached datamine")?
+        fs::read(path).context("Failed reading cached datamine")?
     } else {
         let data = download_datamine(api_key).await.context("failed downloading datamine")?;
 
-        fs::write(path, &data).context("failed writing datamine cache")?;
+        fs::write(path, &data).context("Failed writing datamine cache")?;
 
         data
     };
 
-    let datamine = parse_datamine(&data).context("failed parsing datamine")?;
+    let datamine = parse_datamine(&data).context("Failed parsing datamine")?;
 
     Ok(datamine)
 }
 
 pub fn parse_datamine(data: &[u8]) -> Result<DataMine> {
     let datamine = serde_json::from_slice::<DataMine>(&data)
-        .context("failed deserializing datamine")?;
+        .context("Failed deserializing datamine")?;
 
     Ok(datamine)
 }
