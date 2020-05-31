@@ -6,3 +6,4 @@
 # Project
 .env
 datamine.json
+export/
