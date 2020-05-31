@@ -5,23 +5,31 @@ use serde_json as json;
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct DataMine {
-    pub sheets: Vec<Sheet>,
+    sheets: Vec<Sheet>,
 }
 
 impl DataMine {
+    pub fn sheets(&self) -> impl Iterator<Item = &Sheet> {
+        self.sheets.iter()
+    }
+
     pub fn find_sheet_by_title(&self, title: &str) -> Option<&Sheet> {
-        self.sheets.iter().find(|sheet| sheet.properties.title == title)
+        self.sheets().find(|sheet| sheet.title() == title)
     }
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct Sheet {
-    pub properties: SheetProperties,
-    pub data: Vec<GridData>,
+    properties: SheetProperties,
+    data: Vec<GridData>,
 }
 
 impl Sheet {
+    fn title(&self) -> &str {
+        &self.properties.title
+    }
+
     fn grid_data(&self) -> Result<&GridData> {
         let grid_data = self.data.first().context("No grid data")?;
         Ok(grid_data)
@@ -65,26 +73,26 @@ impl Sheet {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct SheetProperties {
-    pub title: String,
+    title: String,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct GridData {
-    pub row_data: Vec<RowData>,
+    row_data: Vec<RowData>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct RowData {
-    pub values: Vec<CellData>,
+    values: Vec<CellData>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct CellData {
-    pub user_entered_value: Option<ExtendedValue>,
-    pub effective_value: Option<ExtendedValue>,
+    user_entered_value: Option<ExtendedValue>,
+    effective_value: Option<ExtendedValue>,
 }
 
 impl CellData {
