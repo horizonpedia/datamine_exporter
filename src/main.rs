@@ -29,21 +29,13 @@ async fn run(api_key: &str) -> Result<()> {
         .context("Failed to create export directory")?;
 
     for sheet in datamine.sheets() {
+        if sheet.title() == "Read Me" {
+            continue;
+        }
+
         export_sheet(&sheet)
             .with_context(|| format!("Failed to export sheet '{}'", sheet.title()))?;
     }
-
-    let recipes = datamine.find_sheet_by_title("Recipes")
-        .context("Failed to find recipes sheet")?;
-
-    let recipes = recipes.json_rows()
-        .context("Failed to get recipes json rows")?;
-
-    let recipes_json = serde_json::to_vec_pretty(&recipes)
-        .context("Failed to serialize recipes")?;
-
-    fs::write("export/recipes.json", &recipes_json)
-        .context("Failed to write recipes.json")?;
 
     Ok(())
 }
