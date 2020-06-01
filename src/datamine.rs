@@ -41,8 +41,22 @@ impl Sheet {
         self.grid_data()?
             .row_data.first().context("No column titles")?
             .values.iter()
-            .map(|cell| cell.to_string().context("Empty column title"))
+            .map(|cell| cell
+                .to_string()
+                .map(|column| Self::normalize_column_name(&column))
+                .context("Empty column title")
+            )
             .collect()
+    }
+
+    fn normalize_column_name(column: &str) -> String {
+        column
+        .chars()
+        .map(|c| match c {
+            ' ' => '_',
+            c => c.to_ascii_lowercase(),
+        })
+        .collect()
     }
 
     pub fn json_rows(&self) -> Result<Vec<json::Map<String, json::Value>>> {
