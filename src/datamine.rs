@@ -1,6 +1,8 @@
 use anyhow::*;
 use serde::Deserialize;
 use serde_json as json;
+use lazy_static::lazy_static;
+use regex::Regex;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
@@ -26,7 +28,7 @@ pub struct Sheet {
 }
 
 impl Sheet {
-    fn title(&self) -> &str {
+    pub fn title(&self) -> &str {
         &self.properties.title
     }
 
@@ -56,8 +58,8 @@ impl Sheet {
                         .map(json::Value::String)
                         .unwrap_or(json::Value::Null);
 
-                    println!("Key: {}", key);
-                    println!("Value: {}", value);
+                    // println!("Key: {}", key);
+                    // println!("Value: {}", value);
 
                     map.insert(key, value.into());
                 }
@@ -88,6 +90,11 @@ pub struct RowData {
     values: Vec<CellData>,
 }
 
+lazy_static! {
+    static ref IMAGE_FORMULA_RE: Regex =
+        Regex::new(r#"(?i)=IMAGE\("(.*)"\)"#).unwrap();
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct CellData {
@@ -98,15 +105,24 @@ pub struct CellData {
 impl CellData {
     fn to_string(&self) -> Option<String> {
         if let Some(effective_value) = &self.effective_value {
-            return Some(match effective_value {
-                ExtendedValue::String { value } => value.clone(),
-                ExtendedValue::Number { value } => value.to_string(),
+            match effective_value {
+                ExtendedValue::String { value } => return Some(value.clone()),
+                ExtendedValue::Number { value } => return Some(value.to_string()),
+                // In this case, fall back to user_entered_value
+                ExtendedValue::Empty {} => {},
                 _ => unimplemented!("other effective value type: {:?}", effective_value),
-            })
+            }
         }
 
         if let Some(user_entered_value) = &self.user_entered_value {
-            return match user_entered_value {
+            match user_entered_value {
+                ExtendedValue::Formula { value } => {
+                    // println!("Formula: {}", value);
+                    let caps = IMAGE_FORMULA_RE.captures(value).expect("image formula expected");
+                    let image_url = caps.get(1).unwrap().as_str();
+
+                    return Some(image_url.to_string());
+                },
                 _ => unimplemented!("other user entered value type: {:?}", user_entered_value),
             }
         }
@@ -145,5 +161,5 @@ pub enum ExtendedValue {
         value: String,
     },
     // error_value: Option<ErrorValue>,
-    Empty{},
+    Empty {},
 }
