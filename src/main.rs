@@ -117,7 +117,10 @@ async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Resul
     let titles = sheet.column_titles()
         .context("Failed to get column titles")?;
 
-    if !titles.iter().any(|title| title == "image") {
+    let image_column_exists = titles.iter().any(|title| title == "image");
+    let filename_column_exists = titles.iter().any(|title| title == "filename");
+
+    if !image_column_exists || !filename_column_exists {
         return Ok(());
     }
 
