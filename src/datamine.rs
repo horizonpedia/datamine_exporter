@@ -37,6 +37,9 @@ impl Sheet {
         Ok(grid_data)
     }
 
+    /// Returns the column titles (first row) in a normalized form:
+    /// - lowercased
+    /// - spaces are translated to `_`
     pub fn column_titles(&self) -> Result<Vec<String>> {
         self.grid_data()?
             .row_data.first().context("No column titles")?

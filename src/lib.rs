@@ -5,10 +5,19 @@ use anyhow::*;
 mod datamine;
 pub use datamine::*;
 use reqwest::Url;
-use indicatif::HumanBytes;
+use lazy_static::lazy_static;
+use indicatif::{HumanBytes, ProgressStyle};
 
 const DATAMINE_SHEET_ID: &str = "13d_LAJPlxMa_DubPTuirkIV4DERBMXbrWQsmSh8ReK4";
 const DOWNLOAD_BUF_CAPACITY: usize = 1024 * 1024 * 1024;
+
+lazy_static! {
+    pub static ref PROGRESSBAR_STYLE: ProgressStyle = ProgressStyle::default_bar()
+        .template("{msg} [{elapsed_precise}] [{pos:}/{len}] {wide_bar}");
+
+    pub static ref PROGRESSBAR_STYLE_ETA: ProgressStyle = ProgressStyle::default_bar()
+        .template("{msg} [ETA {eta}] [{pos}/{len}] {wide_bar}");
+}
 
 pub async fn get_cached_or_download_datamine(path: impl AsRef<Path>, api_key: &str) -> Result<DataMine> {
     let path = path.as_ref();
