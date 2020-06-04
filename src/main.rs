@@ -138,47 +138,77 @@ async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Resul
 
     stream::iter(json_rows).map(Ok)
         .try_for_each_concurrent(10, move |row: Map<String, Value>| async move {
-            let filename = row.get("filename").and_then(|col| col.as_str());
-            let filename = match filename {
-                Some(filename) => filename,
-                None => return Ok::<_, Error>(()),
-            };
-            let image_url = row.get("image").and_then(|col| col.as_str());
-            let image_url = match image_url {
-                Some(image_url) => image_url,
-                None => return Ok::<_, Error>(()),
-            };
-
-            let filename = format!("{}/{}.png", dir, filename);
-            let file_exists = Path::new(&filename).exists();
-
-            if file_exists {
-                total_progress.inc(1);
-                return Ok(());
-            }
-
-            let progress = multi_progress.add(ProgressBar::new_spinner());
-            progress.enable_steady_tick(150);
-            progress.set_message(&format!("Downloading {}", filename));
-
-            let response = reqwest::get(image_url).await
-                .context("Failed to request image")?;
-            let image = response.bytes().await
-                .context("Failed to download image completely")?;
-
-            safe_write(&filename, &image).await
-                .with_context(|| format!("Failed to write {}", filename))?;
-
-            progress.finish_and_clear();
+            let result = download_image_for_row(dir, &row, multi_progress).await;
             total_progress.inc(1);
-
-            Ok(())
+            result
         })
         .await?;
 
     total_progress.finish_and_clear();
 
     Ok(())
+}
+
+async fn download_image_for_row<'a>(
+    dir: &str,
+    row: &Map<String, Value>,
+    multi_progress: &MultiProgress,
+) -> Result<()> {
+    let image = match Image::from_row(row) {
+        Some(image) => image,
+        None => return Ok(()),
+    };
+    let download_path = format!("{}/{}.png", dir, image.filename);
+    let file_exists = Path::new(&download_path).exists();
+
+    if file_exists {
+        return Ok(());
+    }
+
+    let progress = multi_progress.add(ProgressBar::new_spinner());
+    progress.enable_steady_tick(150);
+    progress.set_message(&format!("Downloading {}", download_path));
+
+    image.download_to(download_path).await
+        .with_context(|| image.url.to_string())?;
+
+    progress.finish_and_clear();
+
+    Ok(())
+}
+
+struct Image<'a> {
+    url: &'a str,
+    filename: &'a str,
+}
+
+impl<'a> Image<'a> {
+    fn from_row(row: &'a Map<String, Value>) -> Option<Self> {
+        Some(Self {
+            url: row.get("image")?.as_str()?,
+            filename: row.get("filename")?.as_str()?,
+        })
+    }
+
+    async fn download(&self) -> Result<impl AsRef<[u8]>> {
+        let response = reqwest::get(self.url).await
+            .context("Failed to request image")?;
+
+        let image = response.bytes().await
+            .context("Failed to download image completely")?;
+
+        Ok(image)
+    }
+
+    async fn download_to(&self, path: impl AsRef<Path>) -> Result<()> {
+        let image = self.download().await
+            .context("Failed to download image")?;
+
+        safe_write(&path, &image).await
+            .with_context(|| format!("Failed to write {}", path.as_ref().display()))?;
+
+        Ok(())
+    }
 }
 
 async fn safe_write(path: impl AsRef<Path>, data: impl AsRef<[u8]> + Unpin) -> Result<()> {
