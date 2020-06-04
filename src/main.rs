@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, path::Path};
 use anyhow::*;
 use datamine_exporter::{Sheet, get_cached_or_download_datamine};
 use futures::prelude::*;
@@ -93,7 +93,7 @@ async fn export_sheet(sheet: &Sheet) -> Result<()> {
     let filename = normalize_filename_fragment(sheet.title());
     let filename = format!("{}/{}.json", EXPORT_PATH, filename);
 
-    fs::write(&filename, &json).await
+    safe_write(&filename, &json).await
         .with_context(|| format!("Failed to write {}", filename))?;
 
     Ok(())
@@ -147,6 +147,12 @@ async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Resul
             };
 
             let filename = format!("{}/{}.png", dir, filename);
+            let file_exists = Path::new(&filename).exists();
+
+            if file_exists {
+                total_progress.inc(1);
+                return Ok(());
+            }
 
             let progress = multi_progress.add(ProgressBar::new_spinner());
             progress.enable_steady_tick(150);
@@ -157,7 +163,7 @@ async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Resul
             let image = response.bytes().await
                 .context("Failed to download image completely")?;
 
-            fs::write(&filename, &image).await
+            safe_write(&filename, &image).await
                 .with_context(|| format!("Failed to write {}", filename))?;
 
             progress.finish_and_clear();
@@ -168,6 +174,23 @@ async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Resul
         .await?;
 
     total_progress.finish_and_clear();
+
+    Ok(())
+}
+
+async fn safe_write(path: impl AsRef<Path>, data: impl AsRef<[u8]> + Unpin) -> Result<()> {
+    let path = path.as_ref();
+    let file_name = path.file_name()
+        .context("Path without filename was given")?
+        .to_string_lossy();
+    let file_name = format!("{}.tmp", file_name);
+    let tmp_path = path.with_file_name(file_name);
+
+    fs::write(&tmp_path, data).await
+        .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+
+    fs::rename(&tmp_path, &path).await
+        .with_context(|| format!("Failed to move {} to {}", tmp_path.display(), path.display()))?;
 
     Ok(())
 }
