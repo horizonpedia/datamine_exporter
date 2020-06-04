@@ -135,22 +135,16 @@ async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Resul
 
     stream::iter(json_rows).map(Ok)
         .try_for_each_concurrent(10, move |row: Map<String, Value>| async move {
-            let name = row.get("name").and_then(|col| col.as_str());
-            let name = match name {
-                Some(image_url) => image_url,
+            let filename = row.get("filename").and_then(|col| col.as_str());
+            let filename = match filename {
+                Some(filename) => filename,
                 None => return Ok::<_, Error>(()),
             };
-            let variant_id = row.get("variant_id").and_then(|col| col.as_str());
             let image_url = row.get("image").and_then(|col| col.as_str());
             let image_url = match image_url {
                 Some(image_url) => image_url,
                 None => return Ok::<_, Error>(()),
             };
-            let mut filename = normalize_filename_fragment(name);
-
-            if let Some(variant_id) = variant_id {
-                filename = format!("{}_{}", filename, normalize_filename_fragment(&variant_id));
-            }
 
             let filename = format!("{}/{}.png", dir, filename);
 
