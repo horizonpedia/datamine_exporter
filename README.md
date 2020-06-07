@@ -21,5 +21,10 @@ Just execute this in the project root:
 ```
 cargo run
 ```
+If you want to download the images as well, execute:
+
+```
+cargo run -- --dl-images
+```
 
 It will create a folder called `export`, containing all the sheets in json format.
