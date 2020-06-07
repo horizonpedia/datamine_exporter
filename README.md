@@ -21,7 +21,7 @@ Just execute this in the project root:
 ```
 cargo run
 ```
-If you want to download the images as well, execute:
+If you want to include the images in the download, execute:
 
 ```
 cargo run -- --dl-images
