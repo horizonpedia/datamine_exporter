@@ -232,6 +232,7 @@ fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, Vec<Map<String, Val
     let mut recipes = sheets.remove("Recipes")
         .context("Failed to find recipes")?;
 
+    // TODO: Make faster by creating a lookup: category => name => [filenames]
     for recipe in &mut recipes {
         let category = recipe.get("category")
             .context("Failed to get category field for a recipe")?
