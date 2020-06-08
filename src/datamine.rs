@@ -1,4 +1,5 @@
 use anyhow::*;
+use std::{borrow::Cow, ops::*};
 use serde::Deserialize;
 use serde_json as json;
 use lazy_static::lazy_static;
@@ -62,6 +63,16 @@ impl Sheet {
         .collect()
     }
 
+    pub fn rows(&self) -> Result<&[RowData]> {
+        let grid_data = self.grid_data()?;
+
+        if grid_data.row_data.len() <= 1 {
+            return Ok(&[]);
+        }
+
+        Ok(&grid_data.row_data[1..])
+    }
+
     pub fn json_rows(&self) -> Result<Vec<json::Map<String, json::Value>>> {
         let columns = self.column_titles()?;
         let rows = self.grid_data()?
@@ -73,6 +84,7 @@ impl Sheet {
                     let key = columns.get(i).cloned().unwrap_or_default();
                     // println!("Key = {}", key);
                     let value = cell.to_string()
+                        .map(Cow::into_owned)
                         .map(json::Value::String)
                         .unwrap_or(json::Value::Null);
                     // println!("Value = {}", value);
@@ -106,6 +118,14 @@ pub struct RowData {
     values: Vec<CellData>,
 }
 
+impl Deref for RowData {
+    type Target = [CellData];
+
+    fn deref(&self) -> &Self::Target {
+        &self.values
+    }
+}
+
 lazy_static! {
     static ref IMAGE_FORMULA_RE: Regex =
         Regex::new(r#"(?i)=IMAGE\("(.*)"\)"#).unwrap();
@@ -119,11 +139,11 @@ pub struct CellData {
 }
 
 impl CellData {
-    fn to_string(&self) -> Option<String> {
+    pub fn to_string(&self) -> Option<Cow<str>> {
         if let Some(effective_value) = &self.effective_value {
             match effective_value {
-                ExtendedValue::String { value } => return Some(value.clone()),
-                ExtendedValue::Number { value } => return Some(value.to_string()),
+                ExtendedValue::String { value } => return Some(Cow::Borrowed(value)),
+                ExtendedValue::Number { value } => return Some(value.to_string().into()),
                 // In this case, fall back to user_entered_value
                 ExtendedValue::Empty {} => {},
                 _ => unimplemented!("other effective value type: {:?}", effective_value),
@@ -137,7 +157,7 @@ impl CellData {
                     let caps = IMAGE_FORMULA_RE.captures(value).expect("image formula expected");
                     let image_url = caps.get(1).unwrap().as_str();
 
-                    return Some(image_url.to_string());
+                    return Some(Cow::Owned(image_url.to_string()));
                 },
                 ExtendedValue::Empty {} => return None,
                 _ => unimplemented!("other user entered value type: {:?}", user_entered_value),

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc, path::Path};
 use anyhow::*;
-use datamine_exporter::{Sheet, get_cached_or_download_datamine};
+use datamine_exporter::{get_cached_or_download_datamine};
 use futures::prelude::*;
 use indicatif::{ProgressBar, MultiProgress};
 use structopt::StructOpt;
@@ -45,12 +45,22 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         .await
         .context("Failed to get datamine")?;
 
+    let mut sheets = datamine.sheets()
+        .map(|sheet| sheet.json_rows().map(|rows| (sheet.title().to_owned(), rows)))
+        .collect::<Result<BTreeMap<_, _>>>()
+        .context("Failed to convert datasheet to json rows")?;
+
+    drop(datamine);
+
+    assign_filenames_to_recipes(&mut sheets)
+        .context("Failed to assign filenames to recipes")?;
+
     fs::create_dir_all(EXPORT_PATH)
         .await
         .context("Failed to create export directory")?;
 
     let ref multi_progress = Arc::new(MultiProgress::new());
-    let total_progress = multi_progress.add(ProgressBar::new(datamine.sheets().count() as u64));
+    let total_progress = multi_progress.add(ProgressBar::new(sheets.len() as u64));
     total_progress.enable_steady_tick(500);
     total_progress.set_style(PROGRESSBAR_STYLE.clone());
 
@@ -59,20 +69,20 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         move || multi_progress.join().unwrap()
     });
 
-    for sheet in datamine.sheets() {
-        if sheet.title() == "Read Me" {
+    for (title, rows) in sheets {
+        if title == "Read Me" {
             total_progress.inc(1);
             continue;
         }
 
-        total_progress.set_message(&format!("Processing '{}'", sheet.title()));
+        total_progress.set_message(&format!("Processing '{}'", title));
 
-        export_sheet(&sheet).await
-            .with_context(|| format!("Failed to export sheet '{}'", sheet.title()))?;
+        export_sheet(&title, &rows).await
+            .with_context(|| format!("Failed to export sheet '{}'", title))?;
 
         if opt.download_images {
-            download_images(sheet, multi_progress).await
-                .with_context(|| format!("Failed to download images for sheet '{}'", sheet.title()))?;
+            download_images(&title, &rows, multi_progress).await
+                .with_context(|| format!("Failed to download images for sheet '{}'", title))?;
         }
 
         total_progress.inc(1);
@@ -83,14 +93,11 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     Ok(())
 }
 
-async fn export_sheet(sheet: &Sheet) -> Result<()> {
-    let json_rows = sheet.json_rows()
-        .context("Failed to convert to json rows")?;
-
-    let json = serde_json::to_vec_pretty(&json_rows)
+async fn export_sheet(title: &str, rows: &[Map<String, Value>]) -> Result<()> {
+    let json = serde_json::to_vec_pretty(&rows)
         .context("Failed to serialize to json")?;
 
-    let filename = normalize_filename_fragment(sheet.title());
+    let filename = normalize_filename_fragment(title);
     let filename = format!("{}/{}.json", EXPORT_PATH, filename);
 
     safe_write(&filename, &json).await
@@ -113,31 +120,24 @@ fn normalize_filename_fragment(name: &str) -> String {
     .collect()
 }
 
-async fn download_images(sheet: &Sheet, multi_progress: &MultiProgress) -> Result<()> {
-    let titles = sheet.column_titles()
-        .context("Failed to get column titles")?;
+async fn download_images(title: &str, rows: &[Map<String, Value>], multi_progress: &MultiProgress) -> Result<()> {
+    let required_fields_exist = rows.iter().all(|row| row.get("image").is_some() && row.get("filename").is_some());
 
-    let image_column_exists = titles.iter().any(|title| title == "image");
-    let filename_column_exists = titles.iter().any(|title| title == "filename");
-
-    if !image_column_exists || !filename_column_exists {
+    if required_fields_exist {
         return Ok(());
     }
 
-    let json_rows = sheet.json_rows()
-        .context("Failed to get json rows")?;
-
-    let ref total_progress = multi_progress.add(ProgressBar::new(json_rows.len() as u64));
+    let ref total_progress = multi_progress.add(ProgressBar::new(rows.len() as u64));
     total_progress.set_style(PROGRESSBAR_STYLE_ETA.clone());
     total_progress.set_message("Downloading images");
     total_progress.enable_steady_tick(150);
 
-    let dir = normalize_filename_fragment(sheet.title());
+    let dir = normalize_filename_fragment(title);
     let ref dir = format!("{}/{}", IMAGE_EXPORT_PATH, dir);
     fs::create_dir_all(&dir).await?;
 
-    stream::iter(json_rows).map(Ok)
-        .try_for_each_concurrent(10, move |row: Map<String, Value>| async move {
+    stream::iter(rows).map(Ok)
+        .try_for_each_concurrent(10, move |row: &Map<String, Value>| async move {
             let result = download_image_for_row(dir, &row, multi_progress).await;
             total_progress.inc(1);
             result
@@ -224,6 +224,53 @@ async fn safe_write(path: impl AsRef<Path>, data: impl AsRef<[u8]> + Unpin) -> R
 
     fs::rename(&tmp_path, &path).await
         .with_context(|| format!("Failed to move {} to {}", tmp_path.display(), path.display()))?;
+
+    Ok(())
+}
+
+fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, Vec<Map<String, Value>>>) -> Result<()> {
+    let mut recipes = sheets.remove("Recipes")
+        .context("Failed to find recipes")?;
+
+    for recipe in &mut recipes {
+        let category = recipe.get("category")
+            .context("Failed to get category field for a recipe")?
+            .as_str()
+            .context("Category is not a string")?;
+
+        let recipe_name = recipe.get("name")
+            .context("Failed to get name field for a recipe")?
+            .as_str()
+            .context("Recipe name is not a string")?;
+
+        let items = sheets.get(category)
+            .context("Sheet not found")?;
+
+        let mut filenames = Vec::new();
+
+        for item in items {
+            let item_name = item.get("name")
+                .context("Failed to get name field for an item")?
+                .as_str()
+                .context("Item name is not a string")?;
+
+            if recipe_name == item_name {
+                let filename = item.get("filename")
+                    .context("Failed to get filename field for an item")?
+                    .as_str()
+                    .context("Item filename is not a string")?;
+                let filename = Value::from(filename);
+
+                filenames.push(filename);
+            }
+        }
+
+        let filenames = Value::from(filenames);
+
+        recipe.insert("filenames".into(), filenames);
+    }
+
+    sheets.insert("Recipes".into(), recipes);
 
     Ok(())
 }
