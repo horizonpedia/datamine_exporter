@@ -71,12 +71,11 @@ impl Sheet {
 
                 for (i, cell) in row.values.iter().enumerate() {
                     let key = columns.get(i).cloned().unwrap_or_default();
+                    // println!("Key = {}", key);
                     let value = cell.to_string()
                         .map(json::Value::String)
                         .unwrap_or(json::Value::Null);
-
-                    // println!("Key: {}", key);
-                    // println!("Value: {}", value);
+                    // println!("Value = {}", value);
 
                     map.insert(key, value.into());
                 }
@@ -140,6 +139,7 @@ impl CellData {
 
                     return Some(image_url.to_string());
                 },
+                ExtendedValue::Empty {} => return None,
                 _ => unimplemented!("other user entered value type: {:?}", user_entered_value),
             }
         }
