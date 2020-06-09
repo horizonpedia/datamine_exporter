@@ -121,9 +121,10 @@ fn normalize_filename_fragment(name: &str) -> String {
 }
 
 async fn download_images(title: &str, rows: &[Map<String, Value>], multi_progress: &MultiProgress) -> Result<()> {
-    let required_fields_exist = rows.iter().all(|row| row.get("image").is_some() && row.get("filename").is_some());
+    let required_fields_exist = rows.iter()
+        .all(|row| row.get("image").is_some() && row.get("filename").is_some());
 
-    if required_fields_exist {
+    if !required_fields_exist {
         return Ok(());
     }
 
