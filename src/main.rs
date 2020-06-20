@@ -1,6 +1,6 @@
 use std::collections::*;
 use std::path::*;
-use std::sync::*;
+use std::{ops, sync::*};
 use anyhow::*;
 use datamine_exporter::*;
 use futures::prelude::*;
@@ -44,16 +44,22 @@ async fn main() -> Result<()> {
 async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     let client = spreadsheet::Client::new(api_key, CACHE_DIR);
 
+    println!(">> Getting datamine");
     let datamine = client.get(DATAMINE_SHEET_ID, &ProgressBar::new_spinner())
         .await
         .context("Failed to get datamine")?;
 
-    let mut sheets = JsonSheet::all_from_spreadsheet(&datamine)
+    println!(">> Transforming datamine");
+    let mut datamine = JsonSheet::all_from_spreadsheet(datamine)
+        .map(Datamine)
         .context("Failed to convert datamine to json sheets")?;
 
-    drop(datamine);
+    println!(">> Getting translations");
+    let translations = client.get(TRANSLATIONS_SHEET_ID, &ProgressBar::new_spinner())
+        .await
+        .context("Failed to get translations")?;
 
-    assign_filenames_to_recipes(&mut sheets)
+    datamine.assign_filenames_to_recipes()
         .context("Failed to assign filenames to recipes")?;
 
     fs::create_dir_all(EXPORT_DIR)
@@ -61,7 +67,7 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         .context("Failed to create export directory")?;
 
     let ref multi_progress = Arc::new(MultiProgress::new());
-    let total_progress = multi_progress.add(ProgressBar::new(sheets.len() as u64));
+    let total_progress = multi_progress.add(ProgressBar::new(datamine.len() as u64));
     total_progress.enable_steady_tick(500);
     total_progress.set_style(PROGRESSBAR_STYLE.clone());
 
@@ -70,24 +76,8 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         move || multi_progress.join().unwrap()
     });
 
-    for (title, sheet) in sheets {
-        if title == "Read Me" {
-            total_progress.inc(1);
-            continue;
-        }
-
-        total_progress.set_message(&format!("Processing '{}'", title));
-
-        export_sheet(&sheet).await
-            .with_context(|| format!("Failed to export sheet '{}'", title))?;
-
-        if opt.download_images {
-            download_images(&sheet, multi_progress).await
-                .with_context(|| format!("Failed to download images for sheet '{}'", title))?;
-        }
-
-        total_progress.inc(1);
-    }
+    datamine.export(&total_progress, &multi_progress, opt.download_images).await
+        .context("Failed to export datamine")?;
 
     total_progress.finish_and_clear();
 
@@ -230,52 +220,93 @@ async fn safe_write(path: impl AsRef<Path>, data: impl AsRef<[u8]> + Unpin) -> R
     Ok(())
 }
 
-fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, JsonSheet>) -> Result<()> {
-    let mut recipes = sheets.remove("Recipes")
-        .context("Failed to find recipes")?;
+struct Datamine(pub BTreeMap<String, JsonSheet>);
 
-    // TODO: Make faster by creating a lookup: category => name => [filenames]
-    for recipe in &mut recipes.rows {
-        let category = recipe.get("category")
-            .context("Failed to get category field for a recipe")?
-            .as_str()
-            .context("Category is not a string")?;
+impl Datamine {
+    fn assign_filenames_to_recipes(&mut self) -> Result<()> {
+        let mut recipes = self.remove("Recipes")
+            .context("Failed to find recipes")?;
 
-        let recipe_name = recipe.get("name")
-            .context("Failed to get name field for a recipe")?
-            .as_str()
-            .context("Recipe name is not a string")?;
-
-        let items = sheets.get(category)
-            .context("Sheet not found")?;
-
-        let mut filenames = Vec::new();
-
-        for item in &items.rows {
-            let item_name = item.get("name")
-                .context("Failed to get name field for an item")?
+        // TODO: Make faster by creating a lookup: category => name => [filenames]
+        for recipe in &mut recipes.rows {
+            let category = recipe.get("category")
+                .context("Failed to get category field for a recipe")?
                 .as_str()
-                .context("Item name is not a string")?;
+                .context("Category is not a string")?;
 
-            if recipe_name == item_name {
-                let filename = item.get("filename")
-                    .context("Failed to get filename field for an item")?
+            let recipe_name = recipe.get("name")
+                .context("Failed to get name field for a recipe")?
+                .as_str()
+                .context("Recipe name is not a string")?;
+
+            let items = self.get(category)
+                .context("Sheet not found")?;
+
+            let mut filenames = Vec::new();
+
+            for item in &items.rows {
+                let item_name = item.get("name")
+                    .context("Failed to get name field for an item")?
                     .as_str()
-                    .context("Item filename is not a string")?;
-                let filename = Value::from(filename);
+                    .context("Item name is not a string")?;
 
-                filenames.push(filename);
+                if recipe_name == item_name {
+                    let filename = item.get("filename")
+                        .context("Failed to get filename field for an item")?
+                        .as_str()
+                        .context("Item filename is not a string")?;
+                    let filename = Value::from(filename);
+
+                    filenames.push(filename);
+                }
             }
+
+            let filenames = Value::from(filenames);
+
+            recipe.insert("filenames".into(), filenames);
         }
 
-        let filenames = Value::from(filenames);
+        self.insert("Recipes".into(), recipes);
 
-        recipe.insert("filenames".into(), filenames);
+        Ok(())
     }
 
-    sheets.insert("Recipes".into(), recipes);
+    async fn export(&self, total_progress: &ProgressBar, multi_progress: &MultiProgress, with_images: bool) -> Result<()> {
+        for (title, sheet) in &**self {
+            if title == "Read Me" {
+                total_progress.inc(1);
+                continue;
+            }
 
-    Ok(())
+            total_progress.set_message(&format!("Processing '{}'", title));
+
+            export_sheet(&sheet).await
+                .with_context(|| format!("Failed to export sheet '{}'", title))?;
+
+            if with_images {
+                download_images(&sheet, multi_progress).await
+                    .with_context(|| format!("Failed to download images for sheet '{}'", title))?;
+            }
+
+            total_progress.inc(1);
+        }
+
+        Ok(())
+    }
+}
+
+impl ops::Deref for Datamine {
+    type Target = BTreeMap<String, JsonSheet>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ops::DerefMut for Datamine {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 type Row = Map<String, Value>;
@@ -286,7 +317,7 @@ struct JsonSheet {
 }
 
 impl JsonSheet {
-    fn all_from_spreadsheet(spreadsheet: &Spreadsheet) -> Result<BTreeMap<String, Self>> {
+    fn all_from_spreadsheet(spreadsheet: Spreadsheet) -> Result<BTreeMap<String, Self>> {
         spreadsheet
         .sheets()
         .map(|sheet| sheet.json_rows().map(|rows| {
