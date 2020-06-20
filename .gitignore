@@ -7,3 +7,4 @@
 .env
 datamine.json
 export/
+cache/

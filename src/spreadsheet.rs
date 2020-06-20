@@ -5,6 +5,9 @@ use serde_json as json;
 use lazy_static::lazy_static;
 use regex::Regex;
 
+mod client;
+pub use client::Client;
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct Spreadsheet {

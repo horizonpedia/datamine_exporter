@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, sync::Arc, path::Path};
+use std::collections::*;
+use std::path::*;
+use std::sync::*;
 use anyhow::*;
 use datamine_exporter::*;
 use futures::prelude::*;
@@ -6,10 +8,9 @@ use indicatif::{ProgressBar, MultiProgress};
 use structopt::StructOpt;
 use serde_json::{Value, Map};
 use tokio::fs;
-use datamine_exporter::{PROGRESSBAR_STYLE, PROGRESSBAR_STYLE_ETA};
 
-const DATAMINE_PATH: &str = "datamine.json";
-const EXPORT_PATH: &str = "export";
+const CACHE_DIR: &str = "cache";
+const EXPORT_DIR: &str = "export";
 const IMAGE_EXPORT_PATH: &str = "export/images";
 
 #[derive(StructOpt)]
@@ -41,7 +42,9 @@ async fn main() -> Result<()> {
 }
 
 async fn run(api_key: &str, opt: &Opt) -> Result<()> {
-    let datamine = get_datamine(DATAMINE_PATH, api_key)
+    let client = spreadsheet::Client::new(api_key, CACHE_DIR);
+
+    let datamine = client.get(DATAMINE_SHEET_ID, &ProgressBar::new_spinner())
         .await
         .context("Failed to get datamine")?;
 
@@ -55,7 +58,7 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     assign_filenames_to_recipes(&mut sheets)
         .context("Failed to assign filenames to recipes")?;
 
-    fs::create_dir_all(EXPORT_PATH)
+    fs::create_dir_all(EXPORT_DIR)
         .await
         .context("Failed to create export directory")?;
 
@@ -98,7 +101,7 @@ async fn export_sheet(title: &str, rows: &[Map<String, Value>]) -> Result<()> {
         .context("Failed to serialize to json")?;
 
     let filename = normalize_filename_fragment(title);
-    let filename = format!("{}/{}.json", EXPORT_PATH, filename);
+    let filename = format!("{}/{}.json", EXPORT_DIR, filename);
 
     safe_write(&filename, &json).await
         .with_context(|| format!("Failed to write {}", filename))?;
