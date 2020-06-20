@@ -2,6 +2,7 @@ use lazy_static::lazy_static;
 use indicatif::ProgressStyle;
 
 pub mod spreadsheet;
+pub use spreadsheet::Spreadsheet;
 
 pub const DATAMINE_SHEET_ID: &str = "13d_LAJPlxMa_DubPTuirkIV4DERBMXbrWQsmSh8ReK4";
 pub const DOWNLOAD_BUF_CAPACITY: usize = 1024 * 1024 * 1024;

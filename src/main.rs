@@ -48,10 +48,8 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         .await
         .context("Failed to get datamine")?;
 
-    let mut sheets = datamine.sheets()
-        .map(|sheet| sheet.json_rows().map(|rows| (sheet.title().to_owned(), rows)))
-        .collect::<Result<BTreeMap<_, _>>>()
-        .context("Failed to convert datasheet to json rows")?;
+    let mut sheets = JsonSheet::all_from_spreadsheet(&datamine)
+        .context("Failed to convert datamine to json sheets")?;
 
     drop(datamine);
 
@@ -72,7 +70,7 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         move || multi_progress.join().unwrap()
     });
 
-    for (title, rows) in sheets {
+    for (title, sheet) in sheets {
         if title == "Read Me" {
             total_progress.inc(1);
             continue;
@@ -80,11 +78,11 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
 
         total_progress.set_message(&format!("Processing '{}'", title));
 
-        export_sheet(&title, &rows).await
+        export_sheet(&sheet).await
             .with_context(|| format!("Failed to export sheet '{}'", title))?;
 
         if opt.download_images {
-            download_images(&title, &rows, multi_progress).await
+            download_images(&sheet, multi_progress).await
                 .with_context(|| format!("Failed to download images for sheet '{}'", title))?;
         }
 
@@ -96,11 +94,11 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     Ok(())
 }
 
-async fn export_sheet(title: &str, rows: &[Map<String, Value>]) -> Result<()> {
-    let json = serde_json::to_vec_pretty(&rows)
+async fn export_sheet(sheet: &JsonSheet) -> Result<()> {
+    let json = serde_json::to_vec_pretty(&sheet.rows)
         .context("Failed to serialize to json")?;
 
-    let filename = normalize_filename_fragment(title);
+    let filename = normalize_filename_fragment(&sheet.title);
     let filename = format!("{}/{}.json", EXPORT_DIR, filename);
 
     safe_write(&filename, &json).await
@@ -123,24 +121,24 @@ fn normalize_filename_fragment(name: &str) -> String {
     .collect()
 }
 
-async fn download_images(title: &str, rows: &[Map<String, Value>], multi_progress: &MultiProgress) -> Result<()> {
-    let required_fields_exist = rows.iter()
+async fn download_images(sheet: &JsonSheet, multi_progress: &MultiProgress) -> Result<()> {
+    let required_fields_exist = sheet.rows.iter()
         .all(|row| row.get("image").is_some() && row.get("filename").is_some());
 
     if !required_fields_exist {
         return Ok(());
     }
 
-    let ref total_progress = multi_progress.add(ProgressBar::new(rows.len() as u64));
+    let ref total_progress = multi_progress.add(ProgressBar::new(sheet.rows.len() as u64));
     total_progress.set_style(PROGRESSBAR_STYLE_ETA.clone());
     total_progress.set_message("Downloading images");
     total_progress.enable_steady_tick(150);
 
-    let dir = normalize_filename_fragment(title);
+    let dir = normalize_filename_fragment(&sheet.title);
     let ref dir = format!("{}/{}", IMAGE_EXPORT_PATH, dir);
     fs::create_dir_all(&dir).await?;
 
-    stream::iter(rows).map(Ok)
+    stream::iter(&sheet.rows).map(Ok)
         .try_for_each_concurrent(10, move |row: &Map<String, Value>| async move {
             let result = download_image_for_row(dir, &row, multi_progress).await;
             total_progress.inc(1);
@@ -232,12 +230,12 @@ async fn safe_write(path: impl AsRef<Path>, data: impl AsRef<[u8]> + Unpin) -> R
     Ok(())
 }
 
-fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, Vec<Map<String, Value>>>) -> Result<()> {
+fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, JsonSheet>) -> Result<()> {
     let mut recipes = sheets.remove("Recipes")
         .context("Failed to find recipes")?;
 
     // TODO: Make faster by creating a lookup: category => name => [filenames]
-    for recipe in &mut recipes {
+    for recipe in &mut recipes.rows {
         let category = recipe.get("category")
             .context("Failed to get category field for a recipe")?
             .as_str()
@@ -253,7 +251,7 @@ fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, Vec<Map<String, Val
 
         let mut filenames = Vec::new();
 
-        for item in items {
+        for item in &items.rows {
             let item_name = item.get("name")
                 .context("Failed to get name field for an item")?
                 .as_str()
@@ -278,4 +276,29 @@ fn assign_filenames_to_recipes(sheets: &mut BTreeMap<String, Vec<Map<String, Val
     sheets.insert("Recipes".into(), recipes);
 
     Ok(())
+}
+
+type Row = Map<String, Value>;
+
+struct JsonSheet {
+    pub title: String,
+    pub rows: Vec<Row>,
+}
+
+impl JsonSheet {
+    fn all_from_spreadsheet(spreadsheet: &Spreadsheet) -> Result<BTreeMap<String, Self>> {
+        spreadsheet
+        .sheets()
+        .map(|sheet| sheet.json_rows().map(|rows| {
+            let title = sheet.title().to_owned();
+            let sheet = Self {
+                title: title.clone(),
+                rows,
+            };
+
+            (title, sheet)
+        }))
+        .collect::<Result<BTreeMap<_, _>>>()
+        .context("Failed to convert datasheet to json rows")
+    }
 }
