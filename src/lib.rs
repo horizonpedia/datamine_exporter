@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 use anyhow::*;
 
-mod datamine;
-pub use datamine::*;
+mod spreadsheet;
+pub use spreadsheet::*;
 use reqwest::Url;
 use lazy_static::lazy_static;
 use indicatif::{HumanBytes, ProgressStyle};
@@ -19,38 +19,58 @@ lazy_static! {
         .template("{msg} [ETA {eta}] [{pos}/{len}] {wide_bar}");
 }
 
-pub async fn get_cached_or_download_datamine(path: impl AsRef<Path>, api_key: &str) -> Result<DataMine> {
+pub async fn get_datamine(path: impl AsRef<Path>, api_key: &str) -> Result<Spreadsheet> {
     let path = path.as_ref();
 
     let data = if path.exists() {
         fs::read(path).context("Failed reading cached datamine")?
     } else {
-        let data = download_datamine(api_key).await.context("failed downloading datamine")?;
+        let data = download_spreadsheet(DATAMINE_SHEET_ID, api_key).await
+            .context("failed downloading datamine")?;
 
         fs::write(path, &data).context("Failed writing datamine cache")?;
 
         data
     };
 
-    let datamine = parse_datamine(&data).context("Failed parsing datamine")?;
+    let datamine = Spreadsheet::from_json_bytes(&data)?;
 
     Ok(datamine)
 }
 
-pub fn parse_datamine(data: &[u8]) -> Result<DataMine> {
-    let datamine = serde_json::from_slice::<DataMine>(&data)
-        .context("Failed deserializing datamine")?;
+pub async fn get_cached_or_download_spreadsheet(
+    path: impl AsRef<Path>,
+    spreadsheet_id: &str,
+    api_key: &str,
+) -> Result<Spreadsheet> {
+    let path = path.as_ref();
 
-    Ok(datamine)
+    let data = if path.exists() {
+        fs::read(path).context("Failed reading cached spreadsheet")?
+    } else {
+        let data = download_spreadsheet(spreadsheet_id, api_key).await
+            .context("failed downloading spreadsheet")?;
+
+        fs::write(path, &data).context("Failed writing datamine cache")?;
+
+        data
+    };
+
+    let spreadsheet = Spreadsheet::from_json_bytes(&data)?;
+
+    Ok(spreadsheet)
 }
 
-async fn download_datamine(api_key: &str) -> Result<Vec<u8>> {
+async fn download_spreadsheet(
+    spreadsheet_id: &str,
+    api_key: &str,
+) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
         .gzip(true)
         .brotli(true)
         .build()?;
     let mut url = Url::parse("https://sheets.googleapis.com/v4/spreadsheets/")?
-        .join(DATAMINE_SHEET_ID)?;
+        .join(spreadsheet_id)?;
 
     url.query_pairs_mut()
         .append_pair("includeGridData", "true")

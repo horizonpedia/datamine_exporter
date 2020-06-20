@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc, path::Path};
 use anyhow::*;
-use datamine_exporter::{get_cached_or_download_datamine};
+use datamine_exporter::*;
 use futures::prelude::*;
 use indicatif::{ProgressBar, MultiProgress};
 use structopt::StructOpt;
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run(api_key: &str, opt: &Opt) -> Result<()> {
-    let datamine = get_cached_or_download_datamine(DATAMINE_PATH, api_key)
+    let datamine = get_datamine(DATAMINE_PATH, api_key)
         .await
         .context("Failed to get datamine")?;
 

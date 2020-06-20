@@ -7,11 +7,18 @@ use regex::Regex;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
-pub struct DataMine {
+pub struct Spreadsheet {
     sheets: Vec<Sheet>,
 }
 
-impl DataMine {
+impl Spreadsheet {
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self> {
+        let spreadsheet = serde_json::from_slice::<Spreadsheet>(&bytes)
+            .context("Failed deserializing spreadsheet")?;
+
+        Ok(spreadsheet)
+    }
+
     pub fn sheets(&self) -> impl Iterator<Item = &Sheet> {
         self.sheets.iter()
     }
