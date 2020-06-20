@@ -2,7 +2,6 @@ use anyhow::*;
 use reqwest::Url;
 use std::{fs, path::*};
 use super::Spreadsheet;
-use indicatif::*;
 
 const DOWNLOAD_BUF_CAPACITY: usize = 1024 * 1024 * 1024;
 
@@ -96,27 +95,39 @@ impl Client {
     }
 }
 
+pub struct FnInstrument<T, F1, F2, F3>
+where
+    F1: Fn(&T),
+    F2: Fn(&T, usize),
+    F3: Fn(&T),
+{
+    pub this: T,
+    pub starting_request: F1,
+    pub received_bytes: F2,
+    pub request_finished: F3,
+}
+
+impl<T, F1, F2, F3> Instrument for FnInstrument<T, F1, F2, F3>
+where
+    F1: Fn(&T),
+    F2: Fn(&T, usize),
+    F3: Fn(&T),
+{
+    fn starting_request(&self) {
+        (self.starting_request)(&self.this)
+    }
+
+    fn received_bytes(&self, amount: usize) {
+        (self.received_bytes)(&self.this, amount)
+    }
+
+    fn request_finished(&self) {
+        (self.request_finished)(&self.this)
+    }
+}
+
 pub trait Instrument {
     fn starting_request(&self);
     fn received_bytes(&self, amount: usize);
     fn request_finished(&self);
-}
-
-impl Instrument for ProgressBar {
-    fn starting_request(&self) {
-        self.set_style(indicatif::ProgressStyle::default_spinner());
-        self.set_message("Sending API request");
-        self.enable_steady_tick(50);
-    }
-
-    fn received_bytes(&self, amount: usize) {
-        self.inc(amount as u64);
-
-        let bytes_downloaded = HumanBytes(self.position());
-        self.set_message(&format!("Downloaded {}", bytes_downloaded));
-    }
-
-    fn request_finished(&self) {
-        self.finish_and_clear();
-    }
 }

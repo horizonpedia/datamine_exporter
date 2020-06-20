@@ -4,7 +4,7 @@ use std::{ops, sync::*};
 use anyhow::*;
 use datamine_exporter::*;
 use futures::prelude::*;
-use indicatif::{ProgressBar, MultiProgress};
+use indicatif::{ProgressBar, MultiProgress, HumanBytes};
 use structopt::StructOpt;
 use serde_json::{Value, Map};
 use tokio::fs;
@@ -45,7 +45,7 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     let client = spreadsheet::Client::new(api_key, CACHE_DIR);
 
     println!(">> Getting datamine");
-    let datamine = client.get(DATAMINE_SHEET_ID, &ProgressBar::new_spinner())
+    let datamine = client.get(DATAMINE_SHEET_ID, &new_spreadsheet_download_progress("datamine"))
         .await
         .context("Failed to get datamine")?;
 
@@ -55,7 +55,7 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         .context("Failed to convert datamine to json sheets")?;
 
     println!(">> Getting translations");
-    let translations = client.get(TRANSLATIONS_SHEET_ID, &ProgressBar::new_spinner())
+    let translations = client.get(TRANSLATIONS_SHEET_ID, &new_spreadsheet_download_progress("translations"))
         .await
         .context("Failed to get translations")?;
 
@@ -84,19 +84,6 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     Ok(())
 }
 
-async fn export_sheet(sheet: &JsonSheet) -> Result<()> {
-    let json = serde_json::to_vec_pretty(&sheet.rows)
-        .context("Failed to serialize to json")?;
-
-    let filename = normalize_filename_fragment(&sheet.title);
-    let filename = format!("{}/{}.json", EXPORT_DIR, filename);
-
-    safe_write(&filename, &json).await
-        .with_context(|| format!("Failed to write {}", filename))?;
-
-    Ok(())
-}
-
 /// Converts ' ' to '_' and strips all other non-alphanumeric characters, except '.'
 fn normalize_filename_fragment(name: &str) -> String {
     name
@@ -109,36 +96,6 @@ fn normalize_filename_fragment(name: &str) -> String {
     }))
     .map(|c| c.to_ascii_lowercase())
     .collect()
-}
-
-async fn download_images(sheet: &JsonSheet, multi_progress: &MultiProgress) -> Result<()> {
-    let required_fields_exist = sheet.rows.iter()
-        .all(|row| row.get("image").is_some() && row.get("filename").is_some());
-
-    if !required_fields_exist {
-        return Ok(());
-    }
-
-    let ref total_progress = multi_progress.add(ProgressBar::new(sheet.rows.len() as u64));
-    total_progress.set_style(PROGRESSBAR_STYLE_ETA.clone());
-    total_progress.set_message("Downloading images");
-    total_progress.enable_steady_tick(150);
-
-    let dir = normalize_filename_fragment(&sheet.title);
-    let ref dir = format!("{}/{}", IMAGE_EXPORT_PATH, dir);
-    fs::create_dir_all(&dir).await?;
-
-    stream::iter(&sheet.rows).map(Ok)
-        .try_for_each_concurrent(10, move |row: &Map<String, Value>| async move {
-            let result = download_image_for_row(dir, &row, multi_progress).await;
-            total_progress.inc(1);
-            result
-        })
-        .await?;
-
-    total_progress.finish_and_clear();
-
-    Ok(())
 }
 
 async fn download_image_for_row<'a>(
@@ -280,11 +237,11 @@ impl Datamine {
 
             total_progress.set_message(&format!("Processing '{}'", title));
 
-            export_sheet(&sheet).await
+            sheet.export_to_dir(EXPORT_DIR).await
                 .with_context(|| format!("Failed to export sheet '{}'", title))?;
 
             if with_images {
-                download_images(&sheet, multi_progress).await
+                sheet.download_images_to_dir(multi_progress).await
                     .with_context(|| format!("Failed to download images for sheet '{}'", title))?;
             }
 
@@ -331,5 +288,76 @@ impl JsonSheet {
         }))
         .collect::<Result<BTreeMap<_, _>>>()
         .context("Failed to convert datasheet to json rows")
+    }
+
+    async fn export_to_dir(&self, dir: impl AsRef<Path>) -> Result<()> {
+        let filename = normalize_filename_fragment(&self.title);
+        let filename = format!("{}.json", filename);
+        let path = dir.as_ref().join(filename);
+
+        self.export_to(path).await
+    }
+
+    async fn export_to(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+
+        let json = serde_json::to_vec_pretty(&self.rows)
+            .context("Failed to serialize to json")?;
+
+        safe_write(path, &json).await
+            .with_context(|| format!("Failed to write {}", path.display()))?;
+
+        Ok(())
+    }
+
+    // TODO: move this function to Datamine struct
+    async fn download_images_to_dir(&self, multi_progress: &MultiProgress) -> Result<()> {
+        let required_fields_exist = self.rows.iter()
+            .all(|row| row.get("image").is_some() && row.get("filename").is_some());
+
+        if !required_fields_exist {
+            return Ok(());
+        }
+
+        let ref total_progress = multi_progress.add(ProgressBar::new(self.rows.len() as u64));
+        total_progress.set_style(PROGRESSBAR_STYLE_ETA.clone());
+        total_progress.set_message("Downloading images");
+        total_progress.enable_steady_tick(150);
+
+        let dir = normalize_filename_fragment(&self.title);
+        let ref dir = format!("{}/{}", IMAGE_EXPORT_PATH, dir);
+        fs::create_dir_all(&dir).await?;
+
+        stream::iter(&self.rows).map(Ok)
+            .try_for_each_concurrent(10, move |row: &Map<String, Value>| async move {
+                let result = download_image_for_row(dir, &row, multi_progress).await;
+                total_progress.inc(1);
+                result
+            })
+            .await?;
+
+        total_progress.finish_and_clear();
+
+        Ok(())
+    }
+}
+
+fn new_spreadsheet_download_progress(sheet_name: &str) -> impl spreadsheet::client::Instrument + '_ {
+    spreadsheet::client::FnInstrument {
+        this: ProgressBar::new_spinner(),
+        starting_request: move |this| {
+            this.set_style(indicatif::ProgressStyle::default_spinner());
+            this.set_message(&format!("Sending API request for {}", sheet_name));
+            this.enable_steady_tick(50);
+        },
+        received_bytes: move |this, amount| {
+            this.inc(amount as u64);
+
+            let bytes_downloaded = HumanBytes(this.position());
+            this.set_message(&format!("Downloaded {} of {}", bytes_downloaded, sheet_name));
+        },
+        request_finished: |this| {
+            this.finish_and_clear();
+        },
     }
 }
