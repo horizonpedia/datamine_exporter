@@ -181,6 +181,7 @@ struct Datamine(pub BTreeMap<String, JsonSheet>);
 
 impl Datamine {
     fn assign_filenames_to_recipes(&mut self) -> Result<()> {
+        let mut unknown_sheets = BTreeSet::new();
         let mut recipes = self.remove("Recipes")
             .context("Failed to find recipes")?;
 
@@ -196,8 +197,13 @@ impl Datamine {
                 .as_str()
                 .context("Recipe name is not a string")?;
 
-            let items = self.get(category)
-                .context("Sheet not found")?;
+            let items = match self.get(category) {
+                Some(items) => items,
+                None => {
+                    unknown_sheets.insert(category.to_owned());
+                    continue;
+                },
+            };
 
             let mut filenames = Vec::new();
 
@@ -224,6 +230,10 @@ impl Datamine {
         }
 
         self.insert("Recipes".into(), recipes);
+
+        for unknown_sheet in unknown_sheets {
+            eprintln!("Warning: Sheet not found: {}", unknown_sheet);
+        }
 
         Ok(())
     }
