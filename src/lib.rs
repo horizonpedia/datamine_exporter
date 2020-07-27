@@ -5,7 +5,7 @@ pub mod spreadsheet;
 pub use spreadsheet::Spreadsheet;
 
 pub const DATAMINE_SHEET_ID: &str = "13d_LAJPlxMa_DubPTuirkIV4DERBMXbrWQsmSh8ReK4";
-pub const TRANSLATIONS_SHEET_ID: &str = "1BjqVeqIrfEezvyrWLUrwMjmK_UbY2LXkZ12mttamTtk";
+pub const TRANSLATIONS_SHEET_ID: &str = "1GwUuCKgJC61qWEjWyeG3nVjkHesszRL6XbPA_dHfLoI";
 pub const DOWNLOAD_BUF_CAPACITY: usize = 1024 * 1024 * 1024;
 
 lazy_static! {
