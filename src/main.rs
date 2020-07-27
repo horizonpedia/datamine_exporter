@@ -59,6 +59,66 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         .await
         .context("Failed to get translations")?;
 
+    let translatable_columns = &[
+        "Source",
+        "Source Notes",
+        "Color 1",
+        "Color 2",
+        "Style",
+        "primary Shape",
+        "secondary Shape",
+        "HHA Concept 1",
+        "HHA Concept 2",
+        "HHA Series",
+        "HHA Set",
+        "HHA Category",
+        "Tag",
+        "Pattern",
+        "Pattern Title",
+        "Body Title",
+        "Window Type",
+        "Window Color",
+        "Pane Type",
+        "Curtain Type",
+        "Curtain Color",
+        "Ceiling Type",
+    ];
+
+    let mut translatable_values = BTreeMap::new();
+
+    for translatable_column in translatable_columns {
+        let normalized_column = spreadsheet::normalize_column_name(translatable_column);
+        let mut values = BTreeSet::new();
+
+        'next_sheet: for (_, sheet) in datamine.iter() {
+            for row in &sheet.rows {
+                match row.get(&normalized_column) {
+                    Some(value) => match value {
+                        Value::String(value) => values.insert(value),
+                        Value::Null => continue,
+                        _ => unimplemented!(),
+                    },
+                    _ => continue 'next_sheet,
+                };
+            }
+        }
+
+        translatable_values.insert(
+            translatable_column.to_owned(),
+            values,
+        );
+    }
+
+    for (column, values) in translatable_values {
+        println!("{}", column);
+        
+        for value in values {
+            println!("    {}", value);
+        }
+    }
+
+    return Ok(());
+
     datamine.assign_filenames_to_recipes()
         .context("Failed to assign filenames to recipes")?;
 

@@ -57,20 +57,10 @@ impl Sheet {
             .values.iter()
             .map(|cell| cell
                 .to_string()
-                .map(|column| Self::normalize_column_name(&column))
+                .map(|column| normalize_column_name(&column))
                 .context("Empty column title")
             )
             .collect()
-    }
-
-    fn normalize_column_name(column: &str) -> String {
-        column
-        .chars()
-        .map(|c| match c {
-            ' ' => '_',
-            c => c.to_ascii_lowercase(),
-        })
-        .collect()
     }
 
     pub fn rows(&self) -> Result<&[RowData]> {
@@ -110,6 +100,16 @@ impl Sheet {
 
         Ok(rows)
     }
+}
+
+pub fn normalize_column_name(column: &str) -> String {
+    column
+    .chars()
+    .map(|c| match c {
+        ' ' => '_',
+        c => c.to_ascii_lowercase(),
+    })
+    .collect()
 }
 
 #[derive(Deserialize, Debug)]
