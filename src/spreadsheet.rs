@@ -104,6 +104,8 @@ impl Sheet {
 
                 map
             })
+            // Only keep rows with data
+            .filter(|row| row.iter().any(|(_key, value)| value != &json::Value::Null))
             .collect();
 
         Ok(rows)
