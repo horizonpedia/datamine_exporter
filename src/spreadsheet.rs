@@ -92,12 +92,12 @@ impl Sheet {
 
                 for (i, cell) in row.values.iter().enumerate() {
                     let key = columns.get(i).cloned().unwrap_or_default();
-                    // println!("Key = {}", key);
+                    // eprintln!("Key = {}", key);
                     let value = cell.to_string()
                         .map(Cow::into_owned)
                         .map(json::Value::String)
                         .unwrap_or(json::Value::Null);
-                    // println!("Value = {}", value);
+                    // eprintln!("Value = {}", value);
 
                     map.insert(key, value.into());
                 }
@@ -165,7 +165,7 @@ impl CellData {
         if let Some(user_entered_value) = &self.user_entered_value {
             match user_entered_value {
                 ExtendedValue::Formula { value } => {
-                    // println!("Formula: {}", value);
+                    // eprintln!("Formula: {}", value);
                     let caps = IMAGE_FORMULA_RE.captures(value).expect("image formula expected");
                     let image_url = caps.get(1).unwrap().as_str();
 

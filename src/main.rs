@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
 
     if let Err(err) = run(api_key, &opt).await {
         let err = format!("{:?}", err).replace(api_key, "<REDACTED>");
-        println!("{}", err);
+        eprintln!("{}", err);
     }
 
     Ok(())
@@ -44,17 +44,17 @@ async fn main() -> Result<()> {
 async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     let client = spreadsheet::Client::new(api_key, CACHE_DIR);
 
-    println!(">> Getting datamine");
+    eprintln!(">> Getting datamine");
     let datamine = client.get(DATAMINE_SHEET_ID, &new_spreadsheet_download_progress("datamine"))
         .await
         .context("Failed to get datamine")?;
 
-    println!(">> Transforming datamine");
+    eprintln!(">> Transforming datamine");
     let mut datamine = JsonSheet::all_from_spreadsheet(datamine)
         .map(Datamine)
         .context("Failed to convert datamine to json sheets")?;
 
-    println!(">> Getting translations");
+    eprintln!(">> Getting translations");
     let translations = client.get(TRANSLATIONS_SHEET_ID, &new_spreadsheet_download_progress("translations"))
         .await
         .context("Failed to get translations")?;
