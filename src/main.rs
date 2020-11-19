@@ -134,7 +134,7 @@ struct Image<'a> {
 impl<'a> Image<'a> {
     fn from_row(row: &'a Map<String, Value>) -> Option<Self> {
         Some(Self {
-            url: row.get("image")?.as_str()?,
+            url: row.get("image").or_else(|| row.get("image_storage"))?.as_str()?,
             filename: row.get("filename")?.as_str()?,
         })
     }
@@ -322,7 +322,7 @@ impl JsonSheet {
     // TODO: move this function to Datamine struct
     async fn download_images_to_dir(&self, multi_progress: &MultiProgress) -> Result<()> {
         let required_fields_exist = self.rows.iter()
-            .all(|row| row.get("image").is_some() && row.get("filename").is_some());
+        .all(|row| (row.get("image").is_some() || row.get("storage_image").is_some()) && row.get("filename").is_some());
 
         if !required_fields_exist {
             return Ok(());
