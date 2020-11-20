@@ -5,6 +5,7 @@ use anyhow::*;
 use datamine_exporter::*;
 use futures::prelude::*;
 use indicatif::{ProgressBar, MultiProgress, HumanBytes};
+use reqwest::Url;
 use structopt::StructOpt;
 use serde_json::{Value, Map};
 use tokio::fs;
@@ -53,6 +54,7 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
     let mut datamine = JsonSheet::all_from_spreadsheet(datamine)
         .map(Datamine)
         .context("Failed to convert datamine to json sheets")?;
+    datamine.override_filenames_with_image_url_filenames()?;
 
     eprintln!(">> Getting translations");
     let translations = client.get(TRANSLATIONS_SHEET_ID, &new_spreadsheet_download_progress("translations"))
@@ -103,7 +105,7 @@ async fn download_image_for_row<'a>(
     row: &Map<String, Value>,
     multi_progress: &MultiProgress,
 ) -> Result<()> {
-    let image = match Image::from_row(row) {
+    let image = match Image::from_row(row).context("Failed to get image from row")? {
         Some(image) => image,
         None => return Ok(()),
     };
@@ -126,21 +128,32 @@ async fn download_image_for_row<'a>(
     Ok(())
 }
 
-struct Image<'a> {
-    url: &'a str,
-    filename: &'a str,
+struct Image {
+    url: Url,
+    filename: String,
 }
 
-impl<'a> Image<'a> {
-    fn from_row(row: &'a Map<String, Value>) -> Option<Self> {
-        Some(Self {
-            url: row.get("image").or_else(|| row.get("storage_image"))?.as_str()?,
-            filename: row.get("filename")?.as_str()?,
-        })
+impl Image {
+    fn from_row(row: &Map<String, Value>) -> Result<Option<Self>> {
+        let url = row.get("image")
+            .or_else(|| row.get("storage_image"))
+            .and_then(Value::as_str);
+        let url = match url {
+            Some(url) => Url::parse(url).context("Invalid URL")?,
+            None => return Ok(None),
+        };
+
+        let filename = url.path_segments()
+            .context("Invalid URL ('cannot-be-a-base')")?
+            .last()
+            .unwrap()
+            .to_owned();
+
+        Ok(Some(Self { url, filename }))
     }
 
     async fn download(&self) -> Result<impl AsRef<[u8]>> {
-        let response = reqwest::get(self.url).await
+        let response = reqwest::get(self.url.clone()).await
             .context("Failed to request image")?;
 
         let image = response.bytes().await
@@ -233,6 +246,28 @@ impl Datamine {
         }
 
         self.insert("Recipes".into(), recipes);
+
+        Ok(())
+    }
+
+    fn override_filenames_with_image_url_filenames(&mut self) -> Result<()> {
+        for (title, sheet) in &mut **self {
+            for row in &mut sheet.rows {
+                let image = Image::from_row(row)
+                    .with_context(|| format!("Failed to get image from row in sheet '{}'", title))?;
+                let image = match image {
+                    Some(image) => image,
+                    None => {
+                        eprintln!("Warning: Row without image in sheet '{}'", title);
+                        return Ok(())
+                    },
+                };
+
+                if let Some(filename) = row.get_mut("filename") {
+                    *filename = Value::String(image.filename);
+                }
+            }
+        }
 
         Ok(())
     }
