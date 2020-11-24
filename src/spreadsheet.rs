@@ -127,6 +127,7 @@ pub struct GridData {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct RowData {
+    #[serde(default)]
     values: Vec<CellData>,
 }
 
