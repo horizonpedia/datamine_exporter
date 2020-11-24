@@ -9,6 +9,9 @@ use structopt::StructOpt;
 use serde_json::{Value, Map};
 use tokio::fs;
 
+mod export_unique_entry_ids;
+use export_unique_entry_ids::export_unique_entry_ids;
+
 const CACHE_DIR: &str = "cache";
 const EXPORT_DIR: &str = "export";
 const IMAGE_EXPORT_PATH: &str = "export/images";
@@ -21,6 +24,12 @@ const IMAGE_EXPORT_PATH: &str = "export/images";
 struct Opt {
     #[structopt(long = "dl-images")]
     download_images: bool,
+    #[structopt(long = "only-ids", help = "Only export unique entry ids to export/unique_entry_ids.txt")]
+    only_ids: bool,
+    #[structopt(long = "id-prefix", requires = "only-ids", help = "The prefix for id's when using `--only-ids`")]
+    id_prefix: Option<String>,
+    #[structopt(long = "id-suffix", requires = "only-ids", help = "The suffix for id's when using `--only-ids`")]
+    id_suffix: Option<String>,
 }
 
 #[tokio::main]
@@ -54,10 +63,17 @@ async fn run(api_key: &str, opt: &Opt) -> Result<()> {
         .map(Datamine)
         .context("Failed to convert datamine to json sheets")?;
 
-    eprintln!(">> Getting translations");
-    let translations = client.get(TRANSLATIONS_SHEET_ID, &new_spreadsheet_download_progress("translations"))
-        .await
-        .context("Failed to get translations")?;
+    if opt.only_ids {
+        eprintln!(">> Exporting unique entry IDs");
+        export_unique_entry_ids(opt, &datamine)
+            .context("Failed to export unique entry IDs")?;
+        return Ok(());
+    }
+
+    // eprintln!(">> Getting translations");
+    // let translations = client.get(TRANSLATIONS_SHEET_ID, &new_spreadsheet_download_progress("translations"))
+    //     .await
+    //     .context("Failed to get translations")?;
 
     datamine.assign_filenames_to_recipes()
         .context("Failed to assign filenames to recipes")?;
