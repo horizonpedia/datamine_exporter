@@ -21,11 +21,22 @@ Just execute this in the project root:
 ```
 cargo run
 ```
-  # Optional Parameters
-  If you want to include the images in the download, execute:
+# Optional Parameters
+- If you want to include the images in the download, execute:
 
-    ```
-    cargo run -- --dl-images
-    ```
+```
+cargo run -- --dl-images
+```
+- If you want to get the Unique Ids from the Items on the spreadsheet ordered by Category, you can exectue:
+
+```
+cargo run -- --only-ids
+```
+
+- You can also add prefixes and suffixes with executing:
+```
+cargo run -- --only-ids --id-prefix="your-prefix" --id-suffix="your-suffix"
+```
+
 
 It will create a folder called `export`, containing all the sheets in json format.
