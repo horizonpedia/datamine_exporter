@@ -149,8 +149,14 @@ struct Image<'a> {
 
 impl<'a> Image<'a> {
     fn from_row(row: &'a Map<String, Value>) -> Option<Self> {
+        let url = row.get("image").or_else(|| row.get("storage_image"))?.as_str()?;
+
+        if url == "NA" {
+            return None;
+        }
+
         Some(Self {
-            url: row.get("image").or_else(|| row.get("storage_image"))?.as_str()?,
+            url,
             filename: row.get("filename")?.as_str()?,
         })
     }
